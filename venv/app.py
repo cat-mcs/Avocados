@@ -2,19 +2,23 @@
 import pandas as pd
 import yfinance as yf
 from dash import Dash, Input, Output, dcc, html
+import plotly.graph_objects as go
 
-btc = yf.Ticker("BTC-USD")
-btc_data = btc.history(period="max")
-btc_data.reset_index(inplace=True)
-btc_data['Date'] = btc_data['Date'].dt.strftime('%Y-%m-%d')
-btc_data.drop(['Dividends', 'Stock Splits'], axis=1, inplace=True)
-btc_data.to_dict(orient='records')
+def tickerData(tickerText):
+    ticker = yf.Ticker(tickerText)
+    tickerData = ticker.history(period="max")
+    tickerData.reset_index(inplace=True)
+    tickerData['Date'] = tickerData['Date'].dt.strftime('%Y-%m-%d')
+    tickerData.drop(['Dividends', 'Stock Splits'], axis=1, inplace=True)
+    tickerData.to_dict(orient='records')
+    return tickerData
 
 data = (
-    btc_data
+    tickerData("BTC-USD")
     .assign(Date=lambda data: pd.to_datetime(data["Date"], format="%Y-%m-%d"))
     .sort_values(by="Date")
 )
+print(data.head())
 
 external_stylesheets = [
     {
@@ -49,6 +53,21 @@ app.layout = html.Div(
             children=[
                 html.Div(
                     children=[
+                        html.Div(children="Ticker", className="menu-title"),
+                        dcc.Dropdown(
+                            id="ticker-filter",
+                            options=[
+                                "BTC-USD","ETH-USD","ADA-USD","QNT-USD",
+                                "ETH-BTC","ADA-ETH","QNT-BTC",
+                            ],
+                            value="BTC-USD",
+                            clearable=False,
+                            className="dropdown",
+                        ),
+                    ]
+                ),
+                html.Div(
+                    children=[
                         html.Div(
                             children="Date Range", className="menu-title"
                         ),
@@ -67,72 +86,42 @@ app.layout = html.Div(
         html.Div(
             children=[
                 html.Div(
-                    children=dcc.Graph(
-                        id="price-chart",
-                        config={"displayModeBar": False},
-                    ),
-                    className="card",
-                ),
+                
+                    children=dcc.Graph(id="price-chart",
+                              figure=go.Figure(data=go.Bar(x=data["Date"], y=data["Close"],marker_color="green"),
+                                               layout=dict(template="plotly_dark"))),
+                        className="card",),
                 html.Div(
-                    children=dcc.Graph(
-                        id="volume-chart",
-                        config={"displayModeBar": False},
-                    ),
-                    className="card",
-                ),
-            ],
-            className="wrapper",
-        ),
+
+                    children=dcc.Graph(id="volume-chart",
+                              figure=go.Figure(data=go.Bar(x=data["Date"], y=data["Volume"],marker_color="red"),
+                                               layout=dict(template="plotly_dark"))),
+                        className="card",),
+                ],
+                className="wrapper",)
     ]
 )
 
 @app.callback(
-    Output("price-chart", "figure"),
-    Output("volume-chart", "figure"),
+    Output("price-chart","figure"),
+    Output("volume-chart","figure"),
+    Input("ticker-filter", "value"),
     Input("date-range", "start_date"),
     Input("date-range", "end_date"),
 )
-def update_charts(start_date, end_date):
-    filtered_data = data.query(
-        "Date >= @start_date and Date <= @end_date"
-    )
-    price_chart_figure = {
-        "data": [
-            {
-                "x": filtered_data["Date"],
-                "y": filtered_data["Close"],
-                "type": "lines",
-                "hovertemplate": "$%{y:.2f}<extra></extra>",
-            },
-        ],
-        "layout": {
-            "title": {
-                "text": "BTC-USD Closing Price",
-                "x": 0.05,
-                "xanchor": "left",
-            },
-            "xaxis": {"fixedrange": True},
-            "yaxis": {"tickprefix": "$", "fixedrange": True},
-            "colorway": ["#17B897"],
-        },
-    }
+def update_charts(ticker, start_date, end_date):
+    
+    data = tickerData(ticker)
+    data = ( data[(data["Date"] >= start_date) & (data["Date"] <= end_date)] if start_date and end_date else data)
 
-    volume_chart_figure = {
-        "data": [
-            {
-                "x": filtered_data["Date"],
-                "y": filtered_data["Volume"],
-                "type": "lines",
-            },
-        ],
-        "layout": {
-            "title": {"text": "BTC-USD Daily Volume", "x": 0.05, "xanchor": "left"},
-            "xaxis": {"fixedrange": True},
-            "yaxis": {"fixedrange": True},
-            "colorway": ["#E12D39"],
-        },
-    }
-    return price_chart_figure, volume_chart_figure
+    pc = go.Figure(data=go.Line(x=data["Date"], y=data["Close"],marker_color="green"),layout=dict(template="plotly_dark"))
+    vc = go.Figure(data=go.Line(x=data["Date"], y=data["Volume"],marker_color="red"),layout=dict(template="plotly_dark"))
+    pc.update_xaxes(showgrid=False)
+    pc.update_yaxes(showgrid=False)
+    vc.update_xaxes(showgrid=False)
+    vc.update_yaxes(showgrid=False)
+
+    return pc, vc
 
 if __name__ == "__main__":
     app.run_server(debug=True)
